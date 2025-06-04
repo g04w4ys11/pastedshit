@@ -1312,8 +1312,3 @@ game:BindToClose(function()
         NoclipConnection = nil
     end
 end)
-
-
-    
-    task.wait(0.1)  -- Задержка для оптимизации
-end

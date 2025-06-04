@@ -1313,18 +1313,7 @@ game:BindToClose(function()
     end
 end)
 
--- Notify script loaded
-local Time = (string.format("%."..tostring(Decimals).."f", os.clock() - Clock))
-library:SendNotification(("Loaded In "..tostring(Time)), 6)
-        print("Скрипт активен!")
-        -- Например:
-        -- game.Players.LocalPlayer.Character.Humanoid.WalkSpeed = 25
-    else
-        -- Остановка скрипта (если нужно сбросить изменения)
-        print("Скрипт отключен!")
-        -- Пример сброса:
-        -- game.Players.LocalPlayer.Character.Humanoid.WalkSpeed = 16
-    end
+
     
     task.wait(0.1)  -- Задержка для оптимизации
 end

@@ -1,1 +1,89 @@
 
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local LocalPlayer = Players.LocalPlayer
+local HOVER_HEIGHT = 100 -- Высота зависания (настраивай)
+local COOLDOWN = 1 -- Задержка между активациями
+local HOVER_DURATION = 5 -- Длительность зависания (секунды)
+local lastActivation = 0
+local isHovering = false
+local bodyPos = nil
+
+local function getCharacter()
+    return LocalPlayer.Character
+end
+
+local function stopHover()
+    if bodyPos then
+        bodyPos:Destroy()
+        bodyPos = nil
+    end
+    isHovering = false
+end
+
+local function applyTeleportAndHover()
+    local character = getCharacter()
+    if not character then return end
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    local rootPart = character:FindFirstChild("HumanoidRootPart")
+    if not humanoid or not rootPart then return end
+
+    -- Сбрасываем параметры для обхода античита
+    humanoid.JumpPower = 50
+    if humanoid.JumpHeight then
+        humanoid.JumpHeight = 7.2
+    end
+
+    -- Плавная телепортация вверх с помощью TweenService
+    pcall(function()
+        local targetCFrame = rootPart.CFrame + Vector3.new(0, HOVER_HEIGHT, 0)
+        local tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Linear)
+        local tween = TweenService:Create(rootPart, tweenInfo, {CFrame = targetCFrame})
+        tween:Play()
+        wait(0.3) -- Ждем завершения твина
+    end)
+
+    -- Зависание с помощью BodyPosition
+    pcall(function()
+        stopHover() -- Очищаем предыдущее зависание
+        bodyPos = Instance.new("BodyPosition")
+        bodyPos.MaxForce = Vector3.new(0, math.huge, 0)
+        bodyPos.Position = rootPart.Position
+        bodyPos.D = 500 -- Демпфирование
+        bodyPos.P = 300000 -- Сила удержания
+        bodyPos.Parent = rootPart
+        isHovering = true
+    end)
+
+    -- Отключаем зависание через HOVER_DURATION
+    spawn(function()
+        wait(HOVER_DURATION)
+        stopHover()
+    end)
+end
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end -- Игнорируем ввод, если игрок в UI (например, чат)
+    if input.KeyCode == Enum.KeyCode.B and tick() - lastActivation >= COOLDOWN and not isHovering then
+        lastActivation = tick()
+        applyTeleportAndHover()
+    end
+end)
+
+LocalPlayer.CharacterAdded:Connect(function(newChar)
+    wait(1) -- Ждем загрузки
+    stopHover() -- Очищаем зависание
+    local humanoid = newChar:FindFirstChildOfClass("Humanoid")
+    if humanoid then
+        humanoid.JumpPower = 50
+        if humanoid.JumpHeight then
+            humanoid.JumpHeight = 7.2
+        end
+    end
+end)
+
+-- Очистка при выходе
+game:BindToClose(function()
+    stopHover()
+end)

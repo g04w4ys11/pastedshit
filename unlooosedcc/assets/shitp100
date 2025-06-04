@@ -1,1 +1,78 @@
+local UserInputService = game:GetService("UserInputService")
+local Players = game:GetService("Players")
+local StarterGui = game:GetService("StarterGui")
+local LocalPlayer = Players.LocalPlayer
+local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+local Humanoid = Character:FindFirstChildOfClass("Humanoid")
+local isAntiDamageEnabled = false
 
+-- Create GUI
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+ScreenGui.ResetOnSpawn = false
+
+local Frame = Instance.new("Frame")
+Frame.Size = UDim2.new(0, 100, 0, 50)
+Frame.Position = UDim2.new(0, 10, 0, 10)
+Frame.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+Frame.BorderSizePixel = 0
+Frame.Parent = ScreenGui
+
+local ToggleButton = Instance.new("TextButton")
+ToggleButton.Size = UDim2.new(0, 80, 0, 30)
+ToggleButton.Position = UDim2.new(0.5, -40, 0.5, -15)
+ToggleButton.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+ToggleButton.Text = "Disable"
+ToggleButton.Parent = Frame
+
+-- Function to toggle Anti-Damage
+local function toggleAntiDamage()
+    isAntiDamageEnabled = not isAntiDamageEnabled
+    ToggleButton.Text = isAntiDamageEnabled and "On" or "Disable"
+    ToggleButton.BackgroundColor3 = isAntiDamageEnabled and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(100, 100, 100)
+    
+    if isAntiDamageEnabled then
+        if Humanoid then
+            Humanoid:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
+            Humanoid.MaxHealth = math.huge
+            Humanoid.Health = math.huge
+            print("Anti-Damage enabled")
+        end
+    else
+        if Humanoid then
+            Humanoid:SetStateEnabled(Enum.HumanoidStateType.Dead, true)
+            Humanoid.MaxHealth = 100
+            Humanoid.Health = 100
+            print("Anti-Damage disabled")
+        end
+    end
+end
+
+-- Block damage
+Humanoid.HealthChanged:Connect(function(health)
+    if isAntiDamageEnabled and health < math.huge then
+        Humanoid.Health = math.huge
+    end
+end)
+
+-- Update character on respawn
+LocalPlayer.CharacterAdded:Connect(function(newCharacter)
+    Character = newCharacter
+    Humanoid = newCharacter:WaitForChild("Humanoid")
+    if isAntiDamageEnabled then
+        Humanoid:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
+        Humanoid.MaxHealth = math.huge
+        Humanoid.Health = math.huge
+    end
+end)
+
+-- Handle button click
+ToggleButton.MouseButton1Click:Connect(toggleAntiDamage)
+
+-- Bind to R key
+UserInputService.InputBegan:Connect(function(input, gameProcessedEvent)
+    if not gameProcessedEvent and input.KeyCode == Enum.KeyCode.R then
+        toggleAntiDamage()
+    end
+end)

@@ -1,1 +1,296 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
 
+-- Функция для создания ESP
+local function createESP(player)
+    if player == LocalPlayer then return end
+
+    -- Ждём, пока персонаж не загрузится
+    local character = player.Character
+    if not character then
+        player.CharacterAdded:Wait()
+        character = player.Character
+    end
+
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    local rootPart = character:FindFirstChild("HumanoidRootPart")
+    if not humanoid or not rootPart then return end
+
+    -- Создание объектов для рисования
+    local boxOuterOutline = Drawing.new("Square")  -- Внешняя чёрная обводка
+    boxOuterOutline.Visible = false
+    boxOuterOutline.Color = Color3.new(0, 0, 0)
+    boxOuterOutline.Thickness = 1
+    boxOuterOutline.Transparency = 1
+    boxOuterOutline.Filled = false
+
+    local box = Drawing.new("Square")  -- Белая обводка
+    box.Visible = false
+    box.Color = Color3.new(1, 1, 1)
+    box.Thickness = 1
+    box.Transparency = 1
+    box.Filled = false
+
+    local boxInnerOutline = Drawing.new("Square")  -- Внутренняя чёрная обводка
+    boxInnerOutline.Visible = false
+    boxInnerOutline.Color = Color3.new(0, 0, 0)
+    boxInnerOutline.Thickness = 1
+    boxInnerOutline.Transparency = 1
+    boxInnerOutline.Filled = false
+
+    local healthBarOutline = Drawing.new("Line")
+    healthBarOutline.Visible = false
+    healthBarOutline.Color = Color3.new(0, 0, 0)
+    healthBarOutline.Thickness = 4
+    healthBarOutline.Transparency = 1
+
+    local healthBar = Drawing.new("Line")
+    healthBar.Visible = false
+    healthBar.Color = Color3.fromRGB(0, 255, 0)
+    healthBar.Thickness = 2
+    healthBar.Transparency = 1
+
+    local nameText = Drawing.new("Text")
+    nameText.Visible = false
+    nameText.Color = Color3.new(1, 1, 1)
+    nameText.Size = 16
+    nameText.Center = true
+    nameText.Outline = true
+    nameText.OutlineColor = Color3.new(0, 0, 0)
+    nameText.Text = player.Name
+    nameText.Transparency = 1
+
+    local toolText = Drawing.new("Text")  -- Текст для отображения инструмента
+    toolText.Visible = false
+    toolText.Color = Color3.fromRGB(255, 255, 0)  -- Желтый цвет
+    toolText.Size = 14
+    toolText.Center = true
+    toolText.Outline = true
+    toolText.OutlineColor = Color3.new(0, 0, 0)
+    toolText.Text = "None"
+    toolText.Transparency = 1
+
+    -- Функция обновления ESP
+    local function updateESP()
+        if not player.Parent or not player.Character then
+            boxOuterOutline:Destroy()
+            box:Destroy()
+            boxInnerOutline:Destroy()
+            healthBarOutline:Destroy()
+            healthBar:Destroy()
+            nameText:Destroy()
+            toolText:Destroy()
+            if connection then
+                connection:Disconnect()
+                connection = nil
+            end
+            return
+        end
+
+        local character = player.Character
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+        local rootPart = character:FindFirstChild("HumanoidRootPart")
+        if not humanoid or not rootPart or humanoid.Health <= 0 then
+            boxOuterOutline.Visible = false
+            box.Visible = false
+            boxInnerOutline.Visible = false
+            healthBarOutline.Visible = false
+            healthBar.Visible = false
+            nameText.Visible = false
+            toolText.Visible = false
+            return
+        end
+
+        local camera = workspace.CurrentCamera
+        local rootPos, onScreen = camera:WorldToViewportPoint(rootPart.Position)
+
+        if onScreen then
+            -- Определяем тип рига (R15 или R6)
+            local isR15 = (humanoid.RigType == Enum.HumanoidRigType.R15)
+
+            -- Список точек для расчёта границ обводки
+            local points = {}
+
+            if isR15 then
+                -- R15: используем ключевые части тела
+                local parts = {
+                    "Head",
+                    "UpperTorso",
+                    "LowerTorso",
+                    "LeftUpperArm", "LeftLowerArm", "LeftHand",
+                    "RightUpperArm", "RightLowerArm", "RightHand",
+                    "LeftUpperLeg", "LeftLowerLeg", "LeftFoot",
+                    "RightUpperLeg", "RightLowerLeg", "RightFoot"
+                }
+                for _, partName in pairs(parts) do
+                    local part = character:FindFirstChild(partName)
+                    if part then
+                        local pos = camera:WorldToViewportPoint(part.Position)
+                        table.insert(points, Vector2.new(pos.X, pos.Y))
+                    end
+                end
+            else
+                -- R6: используем доступные части тела
+                local parts = {
+                    "Head",
+                    "Torso",
+                    "Left Arm",
+                    "Right Arm",
+                    "Left Leg",
+                    "Right Leg"
+                }
+                for _, partName in pairs(parts) do
+                    local part = character:FindFirstChild(partName)
+                    if part then
+                        local halfHeight = part.Size.Y / 2
+                        local topPos = camera:WorldToViewportPoint((part.CFrame * CFrame.new(0, halfHeight, 0)).Position)
+                        local bottomPos = camera:WorldToViewportPoint((part.CFrame * CFrame.new(0, -halfHeight, 0)).Position)
+                        table.insert(points, Vector2.new(topPos.X, topPos.Y))
+                        table.insert(points, Vector2.new(bottomPos.X, bottomPos.Y))
+                    end
+                end
+            end
+
+            if #points < 2 then
+                boxOuterOutline.Visible = false
+                box.Visible = false
+                boxInnerOutline.Visible = false
+                healthBarOutline.Visible = false
+                healthBar.Visible = false
+                nameText.Visible = false
+                toolText.Visible = false
+                return
+            end
+
+            -- Находим минимальные и максимальные координаты
+            local minX, maxX = points[1].X, points[1].X
+            local minY, maxY = points[1].Y, points[1].Y
+            for _, point in pairs(points) do
+                minX = math.min(minX, point.X)
+                maxX = math.max(maxX, point.X)
+                minY = math.min(minY, point.Y)
+                maxY = math.max(maxY, point.Y)
+            end
+
+            -- Добавляем дополнительные отступы для головы и ног
+            local extraPaddingTop = 20  -- Увеличенный отступ сверху (для головы)
+            local extraPaddingBottom = 20  -- Увеличенный отступ снизу (для ног)
+            local extraPaddingSides = 10  -- Отступы по бокам
+            minX = minX - extraPaddingSides
+            maxX = maxX + extraPaddingSides
+            minY = minY - extraPaddingTop
+            maxY = maxY + extraPaddingBottom
+
+            -- Рассчитываем ширину и высоту бокса
+            local boxWidth = maxX - minX
+            local boxHeight = maxY - minY
+
+            -- Ограничиваем размер бокса на расстоянии
+            local maxBoxSize = 200  -- Максимальный размер бокса в пикселях
+            local distance = (camera.CFrame.Position - rootPart.Position).Magnitude
+            local distanceScale = math.clamp(50 / distance, 0.5, 1)  -- Масштабирование в зависимости от расстояния
+            boxWidth = math.min(boxWidth * distanceScale, maxBoxSize)
+            boxHeight = math.min(boxHeight * distanceScale, maxBoxSize)
+
+            -- Позиция и размер бокса (центрируем относительно minX, maxX, minY, maxY)
+            local boxSize = Vector2.new(boxWidth, boxHeight)
+            local boxPos = Vector2.new(
+                minX + (maxX - minX - boxWidth) / 2,  -- Центрируем по X
+                minY + (maxY - minY - boxHeight) / 2   -- Центрируем по Y
+            )
+
+            -- Внешняя чёрная обводка
+            boxOuterOutline.Size = boxSize
+            boxOuterOutline.Position = boxPos
+            boxOuterOutline.Visible = true
+
+            -- Белая обводка (внутри внешней чёрной)
+            local whitePadding = 1
+            box.Size = boxSize - Vector2.new(whitePadding * 2, whitePadding * 2)
+            box.Position = boxPos + Vector2.new(whitePadding, whitePadding)
+            box.Visible = true
+
+            -- Внутренняя чёрная обводка (внутри белой)
+            local innerPadding = 2
+            boxInnerOutline.Size = boxSize - Vector2.new(innerPadding * 2, innerPadding * 2)
+            boxInnerOutline.Position = boxPos + Vector2.new(innerPadding, innerPadding)
+            boxInnerOutline.Visible = true
+
+            -- Обновление полоски здоровья
+            local healthRatio = humanoid.Health / humanoid.MaxHealth
+            local healthBarHeight = boxSize.Y * healthRatio
+            local healthBarPos = boxPos + Vector2.new(boxSize.X + 6, boxSize.Y)
+
+            healthBarOutline.From = healthBarPos
+            healthBarOutline.To = healthBarPos - Vector2.new(0, boxSize.Y)
+            healthBarOutline.Visible = true
+
+            healthBar.From = healthBarPos
+            healthBar.To = healthBarPos - Vector2.new(0, healthBarHeight)
+            healthBar.Color = Color3.fromRGB(255 * (1 - healthRatio), 255 * healthRatio, 0)
+            healthBar.Visible = true
+
+            -- Обновление имени
+            nameText.Position = Vector2.new(boxPos.X + boxSize.X / 2, boxPos.Y - 20)
+            nameText.Visible = true
+
+            -- Обновление текста с инструментом
+            local equippedTool = character:FindFirstChildOfClass("Tool")
+            toolText.Text = equippedTool and equippedTool.Name or "None"
+            toolText.Position = Vector2.new(boxPos.X + boxSize.X / 2, boxPos.Y + boxSize.Y + 14)
+            toolText.Visible = true
+        else
+            boxOuterOutline.Visible = false
+            box.Visible = false
+            boxInnerOutline.Visible = false
+            healthBarOutline.Visible = false
+            healthBar.Visible = false
+            nameText.Visible = false
+            toolText.Visible = false
+        end
+    end
+
+    -- Подключение обновления
+    local connection
+    connection = RunService.RenderStepped:Connect(function()
+        updateESP()
+    end)
+
+    -- Начальное обновление
+    updateESP()
+end
+
+-- Применение ESP ко всем существующим игрокам
+local function applyESPToAllPlayers()
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            createESP(player)
+        end
+    end
+end
+
+-- Обработка новых игроков
+Players.PlayerAdded:Connect(function(player)
+    if player == LocalPlayer then return end
+    player.CharacterAdded:Connect(function(character)
+        -- Ждём, пока персонаж полностью загрузится
+        task.wait(0.5)
+        createESP(player)
+    end)
+    -- Если персонаж уже есть, сразу применяем ESP
+    if player.Character then
+        task.spawn(function()
+            task.wait(0.5)
+            createESP(player)
+        end)
+    end
+end)
+
+-- Обработка существующих игроков при запуске скрипта
+applyESPToAllPlayers()
+
+-- Обработка удаления игроков
+Players.PlayerRemoving:Connect(function(player)
+    -- Очистка уже обрабатывается в RenderStepped
+end)

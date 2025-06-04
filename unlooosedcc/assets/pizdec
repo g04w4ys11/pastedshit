@@ -1,1 +1,130 @@
 
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+local COOLDOWN = 1 -- Задержка между активациями
+local FLY_VELOCITY = 70 -- Скорость горизонтального полета
+local HEIGHT_SPEED = 20 -- Скорость изменения высоты
+local lastActivation = 0
+local isHovering = false
+local bodyPos = nil
+local bodyVel = nil
+local isSpacePressed = false
+local isShiftPressed = false
+
+local function getCharacter()
+    return LocalPlayer.Character
+end
+
+local function stopHover()
+    if bodyPos then
+        bodyPos:Destroy()
+        bodyPos = nil
+    end
+    if bodyVel then
+        bodyVel:Destroy()
+        bodyVel = nil
+    end
+    isHovering = false
+end
+
+local function applyHover()
+    local character = getCharacter()
+    if not character then return end
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    local rootPart = character:FindFirstChild("HumanoidRootPart")
+    if not humanoid or not rootPart then return end
+
+    -- Сбрасываем параметры для обхода античита
+    humanoid.JumpPower = 50
+    if humanoid.JumpHeight then
+        humanoid.JumpHeight = 7.2
+    end
+
+    -- Установка зависания и полета
+    pcall(function()
+        stopHover()
+        bodyPos = Instance.new("BodyPosition")
+        bodyPos.MaxForce = Vector3.new(0, math.huge, 0) -- Фиксация только по Y
+        bodyPos.Position = rootPart.Position
+        bodyPos.D = 500
+        bodyPos.P = 100000 -- Уменьшено для стабильности
+        bodyPos.Parent = rootPart
+
+        bodyVel = Instance.new("BodyVelocity")
+        bodyVel.MaxForce = Vector3.new(math.huge, 0, math.huge)
+        bodyVel.Velocity = Vector3.new(0, 0, 0)
+        bodyVel.Parent = rootPart
+        isHovering = true
+    end)
+end
+
+-- Обработка движения и высоты
+RunService.Heartbeat:Connect(function()
+    if not isHovering then return end
+    local character = getCharacter()
+    if not character then return end
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    local rootPart = character:FindFirstChild("HumanoidRootPart")
+    if not humanoid or not rootPart or not bodyVel or not bodyPos then return end
+
+    -- Горизонтальное движение
+    local moveDirection = humanoid.MoveDirection
+    pcall(function()
+        bodyVel.Velocity = Vector3.new(moveDirection.X * FLY_VELOCITY, 0, moveDirection.Z * FLY_VELOCITY)
+    end)
+
+    -- Управление высотой
+    pcall(function()
+        if isSpacePressed then
+            bodyPos.Position = bodyPos.Position + Vector3.new(0, HEIGHT_SPEED * 0.016, 0) -- Подъем
+        elseif isShiftPressed then
+            bodyPos.Position = bodyPos.Position - Vector3.new(0, HEIGHT_SPEED * 0.016, 0) -- Спуск
+        end
+    end)
+end)
+
+-- Обработка ввода
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.KeyCode == Enum.KeyCode.T and tick() - lastActivation >= COOLDOWN then
+        lastActivation = tick()
+        if isHovering then
+            stopHover()
+        else
+            applyHover()
+        end
+    elseif input.KeyCode == Enum.KeyCode.Space and isHovering then
+        isSpacePressed = true
+    elseif input.KeyCode == Enum.KeyCode.LeftShift and isHovering then
+        isShiftPressed = true
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.KeyCode == Enum.KeyCode.Space then
+        isSpacePressed = false
+    elseif input.KeyCode == Enum.KeyCode.LeftShift then
+        isShiftPressed = false
+    end
+end)
+
+LocalPlayer.CharacterAdded:Connect(function(newChar)
+    wait(1)
+    stopHover()
+    local humanoid = newChar:FindFirstChildOfClass("Humanoid")
+    if humanoid then
+        humanoid.JumpPower = 50
+        if humanoid.JumpHeight then
+            humanoid.JumpHeight = 7.2
+        end
+    end
+end)
+
+game:BindToClose(function()
+    stopHover()
+end)
+
+print("PRESS T")

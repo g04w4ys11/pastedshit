@@ -1,0 +1,4 @@
+nigga(hvh.ru, 1045411466796335134), WHEN I ASKED WITHOUT ANY HATE IF HIS SCRIPT WAS MADE WITH THE HELP OF AI, JUST BLOCKED & BANNED ME!!!(HEX OBFUSCATION)
+pasted, skided
+supported all lvl7 execs
+leaked by some11(readprocessmem0ry, 1099273670356123700)

@@ -1,0 +1,1708 @@
+-- Load Neverlose UI Library
+local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/GhostDuckyy/UI-Libraries/main/Neverlose/source.lua"))()
+
+-- Custom Toggle function for the GUI
+function Library:Toggle(value)
+    if game:GetService("CoreGui"):FindFirstChild("Neverlose") == nil then return end
+    local enabled = (type(value) == "boolean" and value) or game:GetService("CoreGui"):FindFirstChild("Neverlose").Enabled
+    game:GetService("CoreGui"):FindFirstChild("Neverlose").Enabled = not enabled
+end
+
+-- Services
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = pcall(function() return game:GetService("RunService") end) and game:GetService("RunService") or nil
+local TweenService = game:GetService("TweenService")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+local Mouse = LocalPlayer:GetMouse()
+local Workspace = game:GetService("Workspace")
+local GuiService = game:GetService("GuiService")
+
+-- Wait for game to load
+if not game:IsLoaded() then 
+    game.Loaded:Wait()
+end
+
+-- Fallback for GUI protection
+if not syn or not protectgui then
+    getgenv().protectgui = function() end
+end
+
+-- Initialize UI
+local Window = Library:Window({
+    text = "EXPLOIT HUB",
+    draggable = true
+})
+
+-- Speed Settings
+local SpeedSettings = {
+    Enabled = false,
+    Method = "Motion",
+    MotionSpeed = 24,
+    TpSpeed = 30,
+    TpActiveTime = 4,
+    TpCooldownTime = 2
+}
+
+-- JumpStun Settings
+local JumpStunSettings = {
+    Enabled = false,
+    HoverHeight = 100,
+    Cooldown = 2,
+    HoverDuration = 5
+}
+
+-- Fly Settings
+local FlySettings = {
+    Enabled = false,
+    Speed = 20,
+    Acceleration = 50
+}
+
+-- NoFall Settings
+local NoFallSettings = {
+    Enabled = false
+}
+
+-- Visuals Settings
+local VisualSettings = {
+    Arrows = {
+        Enabled = false,
+        ArrowColor = Color3.fromRGB(255, 50, 50),
+        TextColor = Color3.fromRGB(255, 255, 255),
+        MaxDistance = 2000,
+        ArrowSize = 10,
+        CircleRadius = 120,
+        UpdateRate = 0.01
+    },
+    Crosshair = {
+        Enabled = true,
+        LineColor = Color3.fromRGB(0, 170, 255),
+        AnimationSpeed = 10,
+        PulseDistance = 12
+    },
+    Chams = {
+        Enabled = false,
+        Color = Color3.fromRGB(255, 255, 255),
+        Material = Enum.Material.Neon,
+        Transparency = 0.3,
+    },
+    ESPBoxes = {
+        Enabled = false,
+        BoxColor = Color3.fromRGB(255, 255, 255),
+        TracerColor = Color3.fromRGB(255, 255, 255)
+    },
+    TrailsFOV = {
+        CustomFOVEnabled = false,
+        CustomFOV = 70,
+        TrailsEnabled = false,
+        TrailColor = Color3.fromRGB(128, 0, 255)
+    }
+}
+
+-- Variables for Movement
+local LastUpdate = 0
+local SpeedStartTime = 0
+local IsOnCooldown = false
+local UPDATE_INTERVAL = 0.4
+local bodyPos, isHovering, isJumpStunActive = nil, false, false
+local flyVelocity, flyParticle, flyConnection = nil, nil, nil
+local noFallConnection = nil
+local PARTICLE_TEXTURE = "rbxassetid://243098098"
+local FLY_PARTICLE_LIFETIME = 2
+local NOFALL_PARTICLE_LIFETIME = 0.5
+local HEIGHT_RESTORE_SPEED = 150
+local FALL_THRESHOLD = 3
+local lastHeight = 0
+local lastJumpStun = 0
+local lastUIToggle = 0
+local lastCharacterAddedJumpStun = 0
+
+-- Variables for Visuals
+local arrows = {}
+local labels = {}
+local Crosshair = {
+    Lines = {},
+    Text = nil,
+    Enabled = VisualSettings.Crosshair.Enabled,
+    AnimationProgress = 0,
+    IsAnimating = false,
+    AnimationSpeed = VisualSettings.Crosshair.AnimationSpeed,
+    PulseDistance = VisualSettings.Crosshair.PulseDistance,
+    Connection = nil
+}
+local originalProperties = {}
+local connections = {}
+local TrailInstance = nil
+local FOVConnection = nil
+
+-- ESP Implementation
+local ESP = {}
+ESP.__index = ESP
+
+-- Configuration table for easy customization
+local Config = {
+    Enabled = false,
+    ShowBox = true,
+    ShowHealthBar = true,
+    ShowNameTag = true,
+    ShowDistanceTag = true,
+    ShowToolTag = true,
+    ShowTracer = true,
+    BoxColor = Color3.new(1, 1, 1),
+    HealthBarColorMin = Color3.new(1, 0, 0),
+    HealthBarColorMax = Color3.new(0, 1, 0),
+    NameTagColor = Color3.new(1, 1, 1),
+    DistanceTagColor = Color3.new(1, 1, 1),
+    ToolTagColor = Color3.new(0.8, 0.8, 1),
+    TracerColor = Color3.new(1, 1, 1),
+    MaxDistance = 1000,
+    TransparencyFactor = 0.5,
+    TextSize = 16,
+    BoxThickness = 3,
+    HealthBarThickness = 2,
+    TracerThickness = 2,
+}
+
+-- Create a new ESP instance for a player
+function ESP.new(player)
+    local self = setmetatable({}, ESP)
+    self.Player = player
+    self.Objects = {}
+    self:Setup()
+    return self
+end
+
+-- Setup drawing objects
+function ESP:Setup()
+    self.Objects.Box = Drawing.new("Square")
+    self.Objects.Box.Visible = false
+    self.Objects.Box.Thickness = Config.BoxThickness
+    self.Objects.Box.Transparency = 1
+    self.Objects.Box.Filled = false
+
+    self.Objects.HealthBar = Drawing.new("Line")
+    self.Objects.HealthBar.Visible = false
+    self.Objects.HealthBar.Thickness = Config.HealthBarThickness
+
+    self.Objects.NameTag = Drawing.new("Text")
+    self.Objects.NameTag.Visible = false
+    self.Objects.NameTag.Size = Config.TextSize
+    self.Objects.NameTag.Center = true
+    self.Objects.NameTag.Outline = true
+    self.Objects.NameTag.OutlineColor = Color3.new(0, 0, 0)
+
+    self.Objects.DistanceTag = Drawing.new("Text")
+    self.Objects.DistanceTag.Visible = false
+    self.Objects.DistanceTag.Size = Config.TextSize - 2
+    self.Objects.DistanceTag.Center = true
+    self.Objects.DistanceTag.Outline = true
+    self.Objects.DistanceTag.OutlineColor = Color3.new(0, 0, 0)
+
+    self.Objects.ToolTag = Drawing.new("Text")
+    self.Objects.ToolTag.Visible = false
+    self.Objects.ToolTag.Size = Config.TextSize - 2
+    self.Objects.ToolTag.Center = true
+    self.Objects.ToolTag.Outline = true
+    self.Objects.ToolTag.OutlineColor = Color3.new(0, 0, 0)
+
+    self.Objects.Tracer = Drawing.new("Line")
+    self.Objects.Tracer.Visible = false
+    self.Objects.Tracer.Thickness = Config.TracerThickness
+
+    self:UpdateConnection()
+end
+
+-- Update ESP visuals
+function ESP:UpdateConnection()
+    if self.Connection then
+        self.Connection:Disconnect()
+    end
+
+    self.Connection = RunService.RenderStepped:Connect(function()
+        if not Config.Enabled or self.Player == LocalPlayer or not self.Player.Character or
+           not self.Player.Character:FindFirstChild("Humanoid") or
+           not self.Player.Character:FindFirstChild("HumanoidRootPart") or
+           self.Player.Character.Humanoid.Health <= 0 then
+            self:Hide()
+            return
+        end
+
+        local rootPart = self.Player.Character.HumanoidRootPart
+        local head = self.Player.Character:FindFirstChild("Head")
+        if not head then
+            self:Hide()
+            return
+        end
+
+        local vector, onScreen = Camera:WorldToViewportPoint(rootPart.Position)
+        local distance = (LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") and
+                         (LocalPlayer.Character.HumanoidRootPart.Position - rootPart.Position).Magnitude) or math.huge
+
+        if distance > Config.MaxDistance or not onScreen then
+            self:Hide()
+            return
+        end
+
+        local rootPosition = Camera:WorldToViewportPoint(rootPart.Position)
+        local headPosition = Camera:WorldToViewportPoint(head.Position + Vector3.new(0, 0.5, 0))
+        local legPosition = Camera:WorldToViewportPoint(rootPart.Position - Vector3.new(0, 3, 0))
+
+        local baseSize = 500 / math.max(1, rootPosition.Z)
+        local transparency = math.clamp(1 - (distance / Config.MaxDistance) * Config.TransparencyFactor, 0.2, 1)
+
+        if Config.ShowBox then
+            self.Objects.Box.Size = Vector2.new(baseSize * 3.5, headPosition.Y - legPosition.Y)
+            self.Objects.Box.Position = Vector2.new(rootPosition.X - self.Objects.Box.Size.X / 2, rootPosition.Y - self.Objects.Box.Size.Y / 2)
+            self.Objects.Box.Color = Config.BoxColor
+            self.Objects.Box.Transparency = transparency
+            self.Objects.Box.Visible = true
+        end
+
+        if Config.ShowHealthBar then
+            local health = self.Player.Character.Humanoid.Health / self.Player.Character.Humanoid.MaxHealth
+            self.Objects.HealthBar.From = Vector2.new(self.Objects.Box.Position.X + self.Objects.Box.Size.X + 5, self.Objects.Box.Position.Y + self.Objects.Box.Size.Y * (1 - health))
+            self.Objects.HealthBar.To = Vector2.new(self.Objects.Box.Position.X + self.Objects.Box.Size.X + 5, self.Objects.Box.Position.Y + self.Objects.Box.Size.Y)
+            self.Objects.HealthBar.Color = Config.HealthBarColorMin:Lerp(Config.HealthBarColorMax, health)
+            self.Objects.HealthBar.Transparency = transparency
+            self.Objects.HealthBar.Visible = true
+        end
+
+        if Config.ShowNameTag then
+            self.Objects.NameTag.Text = self.Player.Name
+            self.Objects.NameTag.Position = Vector2.new(rootPosition.X, headPosition.Y - 40)
+            self.Objects.NameTag.Color = Config.NameTagColor
+            self.Objects.NameTag.Transparency = transparency
+            self.Objects.NameTag.Visible = true
+        end
+
+        if Config.ShowDistanceTag then
+            self.Objects.DistanceTag.Text = math.floor(distance) .. "m"
+            self.Objects.DistanceTag.Position = Vector2.new(rootPosition.X, legPosition.Y + 20)
+            self.Objects.DistanceTag.Color = Config.DistanceTagColor
+            self.Objects.DistanceTag.Transparency = transparency
+            self.Objects.DistanceTag.Visible = true
+        end
+
+        if Config.ShowToolTag then
+            local equippedTool = self.Player.Character:FindFirstChildOfClass("Tool")
+            self.Objects.ToolTag.Text = equippedTool and equippedTool.Name or "No Tool"
+            self.Objects.ToolTag.Position = Vector2.new(rootPosition.X, legPosition.Y + 35)
+            self.Objects.ToolTag.Color = Config.ToolTagColor
+            self.Objects.ToolTag.Transparency = transparency
+            self.Objects.ToolTag.Visible = true
+        end
+
+        if Config.ShowTracer and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Head") then
+            local lplrHeadViewport = Camera:WorldToViewportPoint(LocalPlayer.Character.Head.Position)
+            self.Objects.Tracer.From = Vector2.new(lplrHeadViewport.X, lplrHeadViewport.Y)
+            self.Objects.Tracer.To = Vector2.new(rootPosition.X, rootPosition.Y)
+            self.Objects.Tracer.Color = Config.TracerColor
+            self.Objects.Tracer.Transparency = transparency
+            self.Objects.Tracer.Visible = true
+        end
+    end)
+end
+
+-- Hide all ESP elements
+function ESP:Hide()
+    for _, obj in pairs(self.Objects) do
+        obj.Visible = false
+    end
+end
+
+-- Destroy ESP instance
+function ESP:Destroy()
+    if self.Connection then
+        self.Connection:Disconnect()
+    end
+    for _, obj in pairs(self.Objects) do
+        obj:Remove()
+    end
+end
+
+-- Main ESP manager
+local ESPManager = {
+    Instances = {},
+    Config = Config,
+}
+
+-- Initialize ESP for a player
+function ESPManager:CreateESP(player)
+    if player == LocalPlayer then return end
+    self.Instances[player] = ESP.new(player)
+end
+
+-- Destroy ESP for a player
+function ESPManager:RemoveESP(player)
+    if self.Instances[player] then
+        self.Instances[player]:Destroy()
+        self.Instances[player] = nil
+    end
+end
+
+-- Toggle ESP on/off
+function ESPManager:Toggle(state)
+    Config.Enabled = state
+end
+
+-- Update configuration
+function ESPManager:UpdateConfig(newConfig)
+    for key, value in pairs(newConfig) do
+        Config[key] = value
+    end
+end
+
+-- Initialize ESP for all players
+for _, player in pairs(Players:GetPlayers()) do
+    ESPManager:CreateESP(player)
+end
+
+-- Handle player added
+Players.PlayerAdded:Connect(function(player)
+    ESPManager:CreateESP(player)
+end)
+
+-- Handle player removed
+Players.PlayerRemoving:Connect(function(player)
+    ESPManager:RemoveESP(player)
+end)
+
+-- Movement Functions
+local function isCharacterValid(character)
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+    return humanoid and humanoid.Parent and humanoid.Health > 0 and rootPart
+end
+
+local function applySpeed(character)
+    if not SpeedSettings.Enabled or not isCharacterValid(character) then return end
+    local currentTime = tick()
+    if currentTime - LastUpdate < UPDATE_INTERVAL then return end
+    LastUpdate = currentTime
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    local rootPart = character:FindFirstChild("HumanoidRootPart")
+    if SpeedSettings.Method == "Motion" then
+        humanoid.WalkSpeed = SpeedSettings.MotionSpeed + math.random(-0.2, 0.2)
+    else
+        if not IsOnCooldown and currentTime - SpeedStartTime >= SpeedSettings.TpActiveTime then
+            IsOnCooldown = true
+            SpeedStartTime = currentTime
+        elseif IsOnCooldown and currentTime - SpeedStartTime >= SpeedSettings.TpCooldownTime then
+            IsOnCooldown = false
+            SpeedStartTime = currentTime
+        end
+        if not IsOnCooldown and humanoid.MoveDirection.Magnitude > 0 then
+            local deltaTime = (RunService and RunService.Heartbeat and RunService.Heartbeat:Wait()) or wait()
+            local randomOffset = Vector3.new(math.random(-0.01, 0.01), 0, math.random(-0.01, 0.01))
+            local moveDirection = (humanoid.MoveDirection * SpeedSettings.TpSpeed * deltaTime * 40) + randomOffset
+            rootPart.CFrame = rootPart.CFrame + moveDirection
+        end
+    end
+end
+
+local function applyJumpStun(character)
+    if not JumpStunSettings.Enabled or not isCharacterValid(character) or isHovering or isJumpStunActive or tick() - lastJumpStun < JumpStunSettings.Cooldown then return end
+    isJumpStunActive = true
+    lastJumpStun = tick()
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    local rootPart = character:FindFirstChild("HumanoidRootPart")
+    if not (humanoid and rootPart) then
+        isJumpStunActive = false
+        warn("applyJumpStun: humanoid or rootPart is nil")
+        return
+    end
+    local success, err = pcall(function()
+        humanoid.JumpPower = 50
+        if humanoid.JumpHeight then humanoid.JumpHeight = 7.2 end
+        local targetCFrame = rootPart.CFrame + Vector3.new(0, JumpStunSettings.HoverHeight, 0)
+        local tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Linear)
+        local tween = TweenService:Create(rootPart, tweenInfo, {CFrame = targetCFrame})
+        tween:Play()
+        task.wait(0.3)
+        if bodyPos then bodyPos:Destroy() end
+        bodyPos = Instance.new("BodyPosition")
+        bodyPos.MaxForce = Vector3.new(0, math.huge, 0)
+        bodyPos.Position = rootPart.Position
+        bodyPos.D = 500
+        bodyPos.P = 300000
+        bodyPos.Parent = rootPart
+        isHovering = true
+    end)
+    if not success then
+        warn("applyJumpStun error: " .. tostring(err))
+        isJumpStunActive = false
+        return
+    end
+    task.spawn(function()
+        task.wait(JumpStunSettings.HoverDuration)
+        isHovering = false
+        isJumpStunActive = false
+        if JumpStunSettings.Enabled and isCharacterValid(character) then
+            applyJumpStun(character)
+        else
+            stopJumpStun()
+        end
+    end)
+end
+
+local function stopJumpStun()
+    if bodyPos then
+        pcall(function() bodyPos:Destroy() end)
+        bodyPos = nil
+    end
+    isHovering = false
+    isJumpStunActive = false
+end
+
+local function createParticleEffect(character, lifetime)
+    if not isCharacterValid(character) then return nil end
+    local particleEmitter = Instance.new("ParticleEmitter")
+    particleEmitter.Texture = PARTICLE_TEXTURE
+    particleEmitter.Lifetime = NumberRange.new(lifetime, lifetime)
+    particleEmitter.Rate = 50
+    particleEmitter.Speed = NumberRange.new(5, 10)
+    particleEmitter.SpreadAngle = Vector2.new(360, 360)
+    particleEmitter.Size = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 2),
+        NumberSequenceKeypoint.new(1, 0)
+    })
+    particleEmitter.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0.5),
+        NumberSequenceKeypoint.new(1, 1)
+    })
+    particleEmitter.Parent = character:FindFirstChild("HumanoidRootPart")
+    return particleEmitter
+end
+
+local function toggleFly(character)
+    if not isCharacterValid(character) then return end
+    FlySettings.Enabled = not FlySettings.Enabled
+    if FlySettings.Enabled then
+        lastHeight = character.HumanoidRootPart.Position.Y
+        flyVelocity = Instance.new("BodyVelocity")
+        flyVelocity.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+        flyVelocity.Velocity = Vector3.new(0, 0, 0)
+        flyVelocity.Parent = character.HumanoidRootPart
+        flyParticle = createParticleEffect(character, FLY_PARTICLE_LIFETIME)
+        if flyConnection and typeof(flyConnection) == "RBXScriptConnection" then
+            pcall(function() flyConnection:Disconnect() end)
+        end
+        local success, err = pcall(function()
+            flyConnection = RunService.RenderStepped:Connect(function(deltaTime)
+                if not FlySettings.Enabled or not isCharacterValid(character) then
+                    pcall(function()
+                        if flyVelocity then flyVelocity:Destroy() end
+                        if flyParticle then flyParticle:Destroy() end
+                        if flyConnection then flyConnection:Disconnect() end
+                    end)
+                    return
+                end
+                local humanoid = character:FindFirstChildOfClass("Humanoid")
+                local rootPart = character:FindFirstChild("HumanoidRootPart")
+                if not (humanoid and rootPart) then return end
+                local moveDirection = humanoid.MoveDirection * FlySettings.Speed
+                local verticalInput = 0
+                if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+                    verticalInput = verticalInput + FlySettings.Speed
+                end
+                if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
+                    verticalInput = verticalInput - FlySettings.Speed
+                end
+                local currentHeight = rootPart.Position.Y
+                if verticalInput >= 0 or currentHeight >= lastHeight - FALL_THRESHOLD then
+                    lastHeight = math.max(lastHeight, currentHeight)
+                end
+                if currentHeight < lastHeight - FALL_THRESHOLD then
+                    local targetCFrame = rootPart.CFrame + Vector3.new(0, lastHeight - currentHeight, 0)
+                    rootPart.CFrame = rootPart.CFrame:Lerp(targetCFrame, deltaTime * HEIGHT_RESTORE_SPEED)
+                    verticalInput = math.max(verticalInput, 0)
+                end
+                if flyVelocity then
+                    flyVelocity.Velocity = flyVelocity.Velocity:Lerp(Vector3.new(moveDirection.X, verticalInput, moveDirection.Z), deltaTime * FlySettings.Acceleration)
+                end
+            end)
+        end)
+        if not success then
+            warn("RenderStepped connection failed: " .. tostring(err))
+        end
+    else
+        pcall(function()
+            if flyVelocity then flyVelocity:Destroy() end
+            if flyParticle then flyParticle:Destroy() end
+            if flyConnection then flyConnection:Disconnect() end
+        end)
+        flyVelocity = nil
+        flyParticle = nil
+        flyConnection = nil
+        FlySettings.Enabled = false
+    end
+end
+
+local function toggleNoFall(character)
+    if not isCharacterValid(character) then return end
+    NoFallSettings.Enabled = not NoFallSettings.Enabled
+    if NoFallSettings.Enabled then
+        local rootPart = character:FindFirstChild("HumanoidRootPart")
+        if rootPart then
+            if noFallConnection then
+                pcall(function() noFallConnection:Disconnect() end)
+            end
+            noFallConnection = RunService.Heartbeat:Connect(function()
+                if not NoFallSettings.Enabled or not rootPart.Parent or not isCharacterValid(character) then
+                    if noFallConnection then
+                        pcall(function() noFallConnection:Disconnect() end)
+                    end
+                    return
+                end
+                local humanoid = character:FindFirstChildOfClass("Humanoid")
+                if humanoid and humanoid:GetState() == Enum.HumanoidStateType.Freefall then
+                    local velocity = rootPart.AssemblyLinearVelocity
+                    rootPart.AssemblyLinearVelocity = Vector3.zero
+                    RunService.RenderStepped:Wait()
+                    rootPart.AssemblyLinearVelocity = velocity
+                    local particle = createParticleEffect(character, NOFALL_PARTICLE_LIFETIME)
+                    if particle then
+                        task.spawn(function()
+                            task.wait(NOFALL_PARTICLE_LIFETIME)
+                            if particle then particle:Destroy() end
+                        end)
+                    end
+                end
+            end)
+        end
+    else
+        if noFallConnection then
+            pcall(function() noFallConnection:Disconnect() end)
+        end
+        noFallConnection = nil
+        NoFallSettings.Enabled = false
+    end
+end
+
+-- Visuals Functions
+local function createArrow()
+    local arrow = {
+        lines = {}
+    }
+    for i = 1, 3 do
+        arrow.lines[i] = Drawing.new("Line")
+        arrow.lines[i].Color = VisualSettings.Arrows.ArrowColor
+        arrow.lines[i].Thickness = 2
+        arrow.lines[i].Visible = false
+    end
+    arrow.label = Drawing.new("Text")
+    arrow.label.Color = VisualSettings.Arrows.TextColor
+    arrow.label.Size = 14
+    arrow.label.Center = true
+    arrow.label.Outline = true
+    arrow.label.OutlineColor = Color3.new(0, 0, 0)
+    arrow.label.Visible = false
+    return arrow
+end
+
+local function updateArrow(arrow, screenPos, distance)
+    local center = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
+    local size = VisualSettings.Arrows.ArrowSize
+    local direction = (screenPos - center).Unit
+    local edgePos = center + direction * VisualSettings.Arrows.CircleRadius
+    local baseWidth = size * 0.6
+    local points = {
+        edgePos + direction * size,
+        edgePos + Vector2.new(-direction.Y, direction.X) * baseWidth - direction * (size * 0.3),
+        edgePos + Vector2.new(direction.Y, -direction.X) * baseWidth - direction * (size * 0.3)
+    }
+    arrow.lines[1].From = points[1]
+    arrow.lines[1].To = points[2]
+    arrow.lines[2].From = points[2]
+    arrow.lines[2].To = points[3]
+    arrow.lines[3].From = points[3]
+    arrow.lines[3].To = points[1]
+    for _, line in pairs(arrow.lines) do
+        line.Visible = true
+    end
+    arrow.label.Position = edgePos + direction * 15
+    arrow.label.Text = string.format("%dm", math.floor(distance))
+    arrow.label.Visible = true
+end
+
+local function updateArrows()
+    if not VisualSettings.Arrows.Enabled or not Camera or not Camera.ViewportSize then return end
+    local myChar = LocalPlayer.Character
+    if not myChar then return end
+    local myRoot = myChar:FindFirstChild("HumanoidRootPart")
+    if not myRoot then return end
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player == LocalPlayer then continue end
+        if not arrows[player] then
+            arrows[player] = createArrow()
+        end
+        local targetChar = player.Character
+        if not targetChar then 
+            for _, line in pairs(arrows[player].lines) do
+                line.Visible = false
+            end
+            arrows[player].label.Visible = false
+            continue 
+        end
+        local targetRoot = targetChar:FindFirstChild("HumanoidRootPart")
+        if not targetRoot then continue end
+        local distance = (targetRoot.Position - myRoot.Position).Magnitude
+        if distance > VisualSettings.Arrows.MaxDistance then
+            for _, line in pairs(arrows[player].lines) do
+                line.Visible = false
+            end
+            arrows[player].label.Visible = false
+            continue
+        end
+        local screenPos, onScreen = Camera:WorldToViewportPoint(targetRoot.Position)
+        screenPos = Vector2.new(screenPos.X, screenPos.Y)
+        if onScreen then
+            local center = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
+            local dir = (screenPos - center).Unit
+            screenPos = center + dir * VisualSettings.Arrows.CircleRadius
+        end
+        updateArrow(arrows[player], screenPos, distance)
+    end
+end
+
+local function InitializeCrosshair()
+    for i = 1, 4 do
+        Crosshair.Lines[i] = Drawing.new("Line")
+        Crosshair.Lines[i].Visible = VisualSettings.Crosshair.Enabled
+        Crosshair.Lines[i].Color = VisualSettings.Crosshair.LineColor
+        Crosshair.Lines[i].Thickness = 1.5
+        Crosshair.Lines[i].Transparency = 1
+    end
+    Crosshair.Text = Drawing.new("Text")
+    Crosshair.Text.Visible = VisualSettings.Crosshair.Enabled
+    Crosshair.Text.Text = "UnLoosed.cc"
+    Crosshair.Text.Color = Color3.fromRGB(240, 240, 240)
+    Crosshair.Text.Size = 16
+    Crosshair.Text.Center = true
+    Crosshair.Text.Outline = true
+    Crosshair.Text.OutlineColor = Color3.new(0, 0, 0)
+end
+
+local function TriggerPulseAnimation()
+    if VisualSettings.Crosshair.Enabled and not Crosshair.IsAnimating then
+        Crosshair.IsAnimating = true
+        Crosshair.AnimationProgress = 0
+    end
+end
+
+local function UpdateCrosshair()
+    if not VisualSettings.Crosshair.Enabled then 
+        for _, line in pairs(Crosshair.Lines) do
+            line.Visible = false
+        end
+        Crosshair.Text.Visible = false
+        return 
+    end
+    if Crosshair.IsAnimating then
+        Crosshair.AnimationProgress = Crosshair.AnimationProgress + (1 / VisualSettings.Crosshair.AnimationSpeed)
+        if Crosshair.AnimationProgress >= 2 then
+            Crosshair.IsAnimating = false
+            Crosshair.AnimationProgress = 0
+        end
+    end
+    local mousePos = UserInputService:GetMouseLocation()
+    local center = Vector2.new(mousePos.X, mousePos.Y)
+    local baseLength = 15
+    local baseGap = 5
+    local angle = tick() % (2 * math.pi)
+    local pulseFactor = 0
+    if Crosshair.IsAnimating then
+        local t = Crosshair.AnimationProgress
+        pulseFactor = math.sin(math.pi * t) * VisualSettings.Crosshair.PulseDistance
+    end
+    for i = 1, 4 do
+        local lineAngle = angle + (i-1) * math.pi/2
+        local dir = Vector2.new(math.cos(lineAngle), math.sin(lineAngle))
+        local currentGap = baseGap + pulseFactor
+        local currentLength = baseLength - pulseFactor * 0.5
+        Crosshair.Lines[i].From = center + dir * currentGap
+        Crosshair.Lines[i].To = center + dir * (currentGap + currentLength)
+        Crosshair.Lines[i].Visible = true
+    end
+    Crosshair.Text.Position = Vector2.new(center.X, center.Y + baseGap + baseLength + 10)
+    Crosshair.Text.Visible = true
+end
+
+local function SetupCrosshairInput()
+    if Crosshair.Connection then
+        Crosshair.Connection:Disconnect()
+    end
+    Crosshair.Connection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        if not VisualSettings.Crosshair.Enabled or gameProcessed then return end
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or 
+           input.UserInputType == Enum.UserInputType.Touch then
+            TriggerPulseAnimation()
+        end
+    end)
+end
+
+local function applyChams()
+    if not VisualSettings.Chams.Enabled then
+        for plr, parts in pairs(originalProperties) do
+            for _, part in pairs(parts) do
+                if part.Instance and part.Instance.Parent then
+                    pcall(function()
+                        part.Instance.BrickColor = part.OriginalColor
+                        part.Instance.Material = part.OriginalMaterial
+                        part.Instance.Transparency = part.OriginalTransparency or 0
+                        part.Instance.CanCollide = part.OriginalCanCollide
+                        part.Instance.CastShadow = part.OriginalCastShadow
+                    end)
+                end
+            end
+        end
+        originalProperties = {}
+        return
+    end
+    task.spawn(function()
+        local processedPlayers = 0
+        local processedParts = 0
+        for _, plr in pairs(Players:GetPlayers()) do
+            if plr ~= LocalPlayer and plr.Character then
+                processedPlayers = processedPlayers + 1
+                local char = plr.Character
+                originalProperties[plr] = originalProperties[plr] or {}
+                for _, part in pairs(char:GetDescendants()) do
+                    if part:IsA("BasePart") and not part:IsA("Terrain") then
+                        processedParts = processedParts + 1
+                        if not originalProperties[plr][part] then
+                            pcall(function()
+                                originalProperties[plr][part] = {
+                                    Instance = part,
+                                    OriginalColor = part.BrickColor,
+                                    OriginalMaterial = part.Material,
+                                    OriginalTransparency = part.Transparency,
+                                    OriginalCanCollide = part.CanCollide,
+                                    OriginalCastShadow = part.CastShadow
+                                }
+                                part.BrickColor = BrickColor.new(VisualSettings.Chams.Color)
+                                part.Material = VisualSettings.Chams.Material
+                                part.Transparency = VisualSettings.Chams.Transparency
+                                part.CanCollide = false
+                                part.CastShadow = false
+                            end)
+                        end
+                    end
+                end
+            end
+        end
+    end)
+end
+
+local function setCustomFOV(enabled, fovValue)
+    local Camera = Workspace.CurrentCamera
+    if enabled then
+        local success, err = pcall(function()
+            Camera.FieldOfView = fovValue
+            FOVConnection = RunService.RenderStepped:Connect(function()
+                if VisualSettings.TrailsFOV.CustomFOVEnabled then
+                    Camera.FieldOfView = VisualSettings.TrailsFOV.CustomFOV
+                else
+                    if FOVConnection then
+                        FOVConnection:Disconnect()
+                        FOVConnection = nil
+                    end
+                end
+            end)
+        end)
+        if not success then
+            warn("Custom FOV: Failed to set - " .. tostring(err))
+        end
+    else
+        if FOVConnection then
+            FOVConnection:Disconnect()
+            FOVConnection = nil
+        end
+    end
+end
+
+local function createPurpleTrails(parent)
+    local trail = Instance.new("Trail")
+    trail.Name = "PurpleTrail"
+    trail.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, VisualSettings.TrailsFOV.TrailColor),
+        ColorSequenceKeypoint.new(1, VisualSettings.TrailsFOV.TrailColor)
+    })
+    trail.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0),
+        NumberSequenceKeypoint.new(1, 1)
+    })
+    trail.WidthScale = NumberSequence.new(1, 1)
+    trail.Lifetime = 0.5
+    trail.Enabled = true
+    local attachment0 = Instance.new("Attachment")
+    attachment0.Name = "TrailAttachment0"
+    attachment0.Position = Vector3.new(0, 1.5, 0)
+    attachment0.Parent = parent
+    local attachment1 = Instance.new("Attachment")
+    attachment1.Name = "TrailAttachment1"
+    attachment1.Position = Vector3.new(0, -2, 0)
+    attachment1.Parent = parent
+    trail.Attachment0 = attachment0
+    trail.Attachment1 = attachment1
+    trail.Parent = parent
+    return trail
+end
+
+-- Anti-Aim Settings
+local BasicAntiAimSettings = {
+    Enabled = false,
+    HeadOffset = 0.3
+}
+local BasicAntiAimConnection = nil
+local BasicCharacterAddedConnection = nil
+
+local JitterAntiAimSettings = {
+    Enabled = false,
+    JitterInterval = 0.05,
+    JitterAngleRange = 30,
+    MinJitterInterval = 0.01,
+    MaxJitterInterval = 0.1
+}
+local JitterAntiAimConnection = nil
+local JitterInputConnection = nil
+local JitterCharacterAddedConnection = nil
+
+-- Basic Anti-Aim Code
+local function setupBasicAntiAim()
+    local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+    local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart")
+    local Humanoid = Character:WaitForChild("Humanoid")
+
+    local function updateBasicAntiAim()
+        if HumanoidRootPart and Humanoid then
+            local currentCFrame = HumanoidRootPart.CFrame
+            local currentPosition = HumanoidRootPart.Position
+            local velocity = Humanoid.MoveDirection * Humanoid.WalkSpeed
+            local _, yAngle, _ = currentCFrame:ToEulerAnglesXYZ()
+            local rotation = CFrame.Angles(math.rad(180), 0, 0)
+            local newCFrame = CFrame.new(currentPosition + Vector3.new(0, -BasicAntiAimSettings.HeadOffset, 0)) * rotation * CFrame.Angles(0, yAngle, 0)
+            HumanoidRootPart.CFrame = newCFrame
+            HumanoidRootPart.Velocity = Vector3.new(velocity.X, HumanoidRootPart.Velocity.Y, velocity.Z)
+        end
+    end
+
+    if BasicAntiAimConnection then BasicAntiAimConnection:Disconnect() end
+    BasicAntiAimConnection = RunService.RenderStepped:Connect(updateBasicAntiAim)
+
+    if BasicCharacterAddedConnection then BasicCharacterAddedConnection:Disconnect() end
+    BasicCharacterAddedConnection = LocalPlayer.CharacterAdded:Connect(function(newCharacter)
+        Character = newCharacter
+        HumanoidRootPart = Character:WaitForChild("HumanoidRootPart")
+        Humanoid = Character:WaitForChild("Humanoid")
+    end)
+end
+
+local function disableBasicAntiAim()
+    if BasicAntiAimConnection then
+        BasicAntiAimConnection:Disconnect()
+        BasicAntiAimConnection = nil
+    end
+    if BasicCharacterAddedConnection then
+        BasicCharacterAddedConnection:Disconnect()
+        BasicCharacterAddedConnection = nil
+    end
+end
+
+-- Jitter Anti-Aim Code
+local jitterElapsedTime = 0
+local jitterCurrentJitterAngle = 0
+
+local function getRandomJitterAngle()
+    local angle = math.random() * 2 * math.rad(JitterAntiAimSettings.JitterAngleRange) - math.rad(JitterAntiAimSettings.JitterAngleRange)
+    return angle
+end
+
+local function updateJitterInterval(change)
+    JitterAntiAimSettings.JitterInterval = math.clamp(JitterAntiAimSettings.JitterInterval + change, JitterAntiAimSettings.MinJitterInterval, JitterAntiAimSettings.MaxJitterInterval)
+end
+
+local function updateJitterAntiAim(deltaTime)
+    local character = LocalPlayer.Character
+    local humanoidRootPart = character and character:FindFirstChild("HumanoidRootPart")
+    local camera = workspace.CurrentCamera
+    if JitterAntiAimSettings.Enabled and humanoidRootPart and camera then
+        jitterElapsedTime = jitterElapsedTime + deltaTime
+        if jitterElapsedTime >= JitterAntiAimSettings.JitterInterval then
+            jitterCurrentJitterAngle = getRandomJitterAngle()
+            jitterElapsedTime = 0
+        end
+
+        local lookVector = camera.CFrame.LookVector
+        local flatLookVector = Vector3.new(lookVector.X, 0, lookVector.Z).Unit
+        local backVector = -flatLookVector
+        local targetCFrame = CFrame.new(humanoidRootPart.Position, humanoidRootPart.Position + backVector)
+        targetCFrame = targetCFrame * CFrame.Angles(0, jitterCurrentJitterAngle, 0)
+        humanoidRootPart.CFrame = targetCFrame
+    end
+end
+
+local function setInitialLookBack()
+    local character = LocalPlayer.Character
+    local humanoidRootPart = character and character:FindFirstChild("HumanoidRootPart")
+    local camera = workspace.CurrentCamera
+    if humanoidRootPart and camera then
+        local lookVector = camera.CFrame.LookVector
+        local flatLookVector = Vector3.new(lookVector.X, 0, lookVector.Z).Unit
+        local backVector = -flatLookVector
+        local initialCFrame = CFrame.new(humanoidRootPart.Position, humanoidRootPart.Position + backVector)
+        humanoidRootPart.CFrame = initialCFrame
+        jitterElapsedTime = 0
+        jitterCurrentJitterAngle = getRandomJitterAngle()
+    end
+end
+
+local function setupJitterAntiAim()
+    if JitterAntiAimConnection then JitterAntiAimConnection:Disconnect() end
+    JitterAntiAimConnection = RunService.Heartbeat:Connect(updateJitterAntiAim)
+
+    if JitterInputConnection then JitterInputConnection:Disconnect() end
+    JitterInputConnection = UserInputService.InputBegan:Connect(function(input, gameProcessedEvent)
+        if not gameProcessedEvent then
+            if input.KeyCode == Enum.KeyCode.Q then
+                JitterAntiAimSettings.Enabled = not JitterAntiAimSettings.Enabled
+                if JitterAntiAimSettings.Enabled then
+                    setInitialLookBack()
+                end
+            elseif input.KeyCode == Enum.KeyCode.Z then
+                updateJitterInterval(-0.01)
+            elseif input.KeyCode == Enum.KeyCode.X then
+                updateJitterInterval(0.01)
+            end
+        end
+    end)
+
+    if JitterCharacterAddedConnection then JitterCharacterAddedConnection:Disconnect() end
+    JitterCharacterAddedConnection = LocalPlayer.CharacterAdded:Connect(function(newCharacter)
+        if JitterAntiAimSettings.Enabled then
+            setInitialLookBack()
+        end
+    end)
+end
+
+local function disableJitterAntiAim()
+    if JitterAntiAimConnection then
+        JitterAntiAimConnection:Disconnect()
+        JitterAntiAimConnection = nil
+    end
+    if JitterInputConnection then
+        JitterInputConnection:Disconnect()
+        JitterInputConnection = nil
+    end
+    if JitterCharacterAddedConnection then
+        JitterCharacterAddedConnection:Disconnect()
+        JitterCharacterAddedConnection = nil
+    end
+end
+
+-- UI Setup
+local AntiAimTabSection = Window:TabSection({
+    text = "ANTI AIM"
+})
+
+local AntiAimTab = AntiAimTabSection:Tab({
+    text = "ANTI AIM",
+    icon = "rbxassetid://7999345313"
+})
+
+local BasicAntiAimSection = AntiAimTab:Section({
+    text = "BASIC ANTI-AIM"
+})
+
+BasicAntiAimSection:Toggle({
+    text = "ENABLED",
+    state = BasicAntiAimSettings.Enabled,
+    callback = function(v)
+        BasicAntiAimSettings.Enabled = v
+        if v then
+            setupBasicAntiAim()
+        else
+            disableBasicAntiAim()
+        end
+    end
+})
+
+local JitterAntiAimSection = AntiAimTab:Section({
+    text = "JITTER ANTI-AIM"
+})
+
+JitterAntiAimSection:Toggle({
+    text = "ENABLED",
+    state = JitterAntiAimSettings.Enabled,
+    callback = function(v)
+        JitterAntiAimSettings.Enabled = v
+        if v then
+            setupJitterAntiAim()
+            setInitialLookBack()
+        else
+            disableJitterAntiAim()
+        end
+    end
+})
+
+JitterAntiAimSection:Slider({
+    text = "JITTER INTERVAL",
+    min = 0.01,
+    max = 0.1,
+    increment = 0.01,
+    callback = function(v)
+        JitterAntiAimSettings.JitterInterval = v
+    end
+})
+
+JitterAntiAimSection:Slider({
+    text = "JITTER ANGLE RANGE",
+    min = 10,
+    max = 90,
+    callback = function(v)
+        JitterAntiAimSettings.JitterAngleRange = v
+    end
+})
+
+local VisualsTabSection = Window:TabSection({
+    text = "VISUALS"
+})
+
+local VisualsTab = VisualsTabSection:Tab({
+    text = "VISUALS",
+    icon = "rbxassetid://7999345313"
+})
+
+local ArrowsSection = VisualsTab:Section({
+    text = "ARROWS"
+})
+
+ArrowsSection:Toggle({
+    text = "ENABLED",
+    state = VisualSettings.Arrows.Enabled,
+    callback = function(v)
+        VisualSettings.Arrows.Enabled = v
+        if not v then
+            for _, arrow in pairs(arrows) do
+                for _, line in pairs(arrow.lines) do
+                    line.Visible = false
+                end
+                arrow.label.Visible = false
+            end
+        end
+    end
+})
+
+ArrowsSection:Colorpicker({
+    text = "ARROW COLOR",
+    color = VisualSettings.Arrows.ArrowColor,
+    callback = function(v)
+        VisualSettings.Arrows.ArrowColor = v
+        for _, arrow in pairs(arrows) do
+            for _, line in pairs(arrow.lines) do
+                line.Color = v
+            end
+        end
+    end
+})
+
+ArrowsSection:Colorpicker({
+    text = "TEXT COLOR",
+    color = VisualSettings.Arrows.TextColor,
+    callback = function(v)
+        VisualSettings.Arrows.TextColor = v
+        for _, arrow in pairs(arrows) do
+            arrow.label.Color = v
+        end
+    end
+})
+
+ArrowsSection:Slider({
+    text = "MAX DISTANCE",
+    min = 500,
+    max = 5000,
+    callback = function(v)
+        VisualSettings.Arrows.MaxDistance = v
+    end
+})
+
+ArrowsSection:Slider({
+    text = "ARROW SIZE",
+    min = 5,
+    max = 20,
+    callback = function(v)
+        VisualSettings.Arrows.ArrowSize = v
+    end
+})
+
+ArrowsSection:Slider({
+    text = "CIRCLE RADIUS",
+    min = 50,
+    max = 200,
+    callback = function(v)
+        VisualSettings.Arrows.CircleRadius = v
+    end
+})
+
+local CrosshairSection = VisualsTab:Section({
+    text = "CROSSHAIR"
+})
+
+CrosshairSection:Toggle({
+    text = "ENABLED",
+    state = VisualSettings.Crosshair.Enabled,
+    callback = function(v)
+        VisualSettings.Crosshair.Enabled = v
+        Crosshair.Enabled = v
+        for _, line in pairs(Crosshair.Lines) do
+            line.Visible = v
+        end
+        Crosshair.Text.Visible = v
+    end
+})
+
+CrosshairSection:Colorpicker({
+    text = "LINE COLOR",
+    color = VisualSettings.Crosshair.LineColor,
+    callback = function(v)
+        VisualSettings.Crosshair.LineColor = v
+        for _, line in pairs(Crosshair.Lines) do
+            line.Color = v
+        end
+    end
+})
+
+CrosshairSection:Slider({
+    text = "ANIMATION SPEED",
+    min = 5,
+    max = 20,
+    callback = function(v)
+        VisualSettings.Crosshair.AnimationSpeed = v
+        Crosshair.AnimationSpeed = v
+    end
+})
+
+CrosshairSection:Slider({
+    text = "PULSE DISTANCE",
+    min = 5,
+    max = 20,
+    callback = function(v)
+        VisualSettings.Crosshair.PulseDistance = v
+        Crosshair.PulseDistance = v
+    end
+})
+
+local ChamsSection = VisualsTab:Section({
+    text = "CHAMS"
+})
+
+ChamsSection:Toggle({
+    text = "ENABLED",
+    state = VisualSettings.Chams.Enabled,
+    callback = function(v)
+        VisualSettings.Chams.Enabled = v
+        applyChams()
+    end
+})
+
+ChamsSection:Colorpicker({
+    text = "CHAMS COLOR",
+    color = VisualSettings.Chams.Color,
+    callback = function(v)
+        VisualSettings.Chams.Color = v
+        if VisualSettings.Chams.Enabled then
+            applyChams()
+        end
+    end
+})
+
+ChamsSection:Slider({
+    text = "TRANSPARENCY",
+    min = 0,
+    max = 1,
+    increment = 0.1,
+    callback = function(v)
+        VisualSettings.Chams.Transparency = v
+        if VisualSettings.Chams.Enabled then
+            applyChams()
+        end
+    end
+})
+
+local ESPBoxesSection = VisualsTab:Section({
+    text = "ESP BOXES"
+})
+
+ESPBoxesSection:Toggle({
+    text = "ENABLED",
+    state = VisualSettings.ESPBoxes.Enabled,
+    callback = function(v)
+        VisualSettings.ESPBoxes.Enabled = v
+        ESPManager:Toggle(v)
+    end
+})
+
+ESPBoxesSection:Toggle({
+    text = "TRACERS ENABLED",
+    state = Config.ShowTracer,
+    callback = function(v)
+        Config.ShowTracer = v
+        ESPManager:UpdateConfig({ShowTracer = v})
+    end
+})
+
+ESPBoxesSection:Colorpicker({
+    text = "BOX COLOR",
+    color = VisualSettings.ESPBoxes.BoxColor,
+    callback = function(v)
+        VisualSettings.ESPBoxes.BoxColor = v
+        ESPManager:UpdateConfig({BoxColor = v})
+    end
+})
+
+ESPBoxesSection:Colorpicker({
+    text = "TRACER COLOR",
+    color = VisualSettings.ESPBoxes.TracerColor,
+    callback = function(v)
+        VisualSettings.ESPBoxes.TracerColor = v
+        ESPManager:UpdateConfig({TracerColor = v})
+    end
+})
+
+local TrailsFOVSection = VisualsTab:Section({
+    text = "TRAILS & FOV"
+})
+
+TrailsFOVSection:Toggle({
+    text = "CUSTOM FOV ENABLED",
+    state = VisualSettings.TrailsFOV.CustomFOVEnabled,
+    callback = function(v)
+        VisualSettings.TrailsFOV.CustomFOVEnabled = v
+        setCustomFOV(v, VisualSettings.TrailsFOV.CustomFOV)
+    end
+})
+
+TrailsFOVSection:Slider({
+    text = "FIELD OF VIEW",
+    min = 30,
+    max = 120,
+    callback = function(v)
+        VisualSettings.TrailsFOV.CustomFOV = v
+        if VisualSettings.TrailsFOV.CustomFOVEnabled then
+            setCustomFOV(true, v)
+        end
+    end
+})
+
+TrailsFOVSection:Toggle({
+    text = "TRAILS ENABLED",
+    state = VisualSettings.TrailsFOV.TrailsEnabled,
+    callback = function(v)
+        VisualSettings.TrailsFOV.TrailsEnabled = v
+        if v then
+            local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+            local rootPart = character:WaitForChild("HumanoidRootPart")
+            local success, err = pcall(function()
+                TrailInstance = createPurpleTrails(rootPart)
+            end)
+            if not success then
+                warn("Trails: Failed to load - " .. tostring(err))
+                VisualSettings.TrailsFOV.TrailsEnabled = false
+                TrailsFOVSection:Find("TRAILS ENABLED"):Set(false)
+            end
+        else
+            if TrailInstance then
+                TrailInstance:Destroy()
+                TrailInstance = nil
+            end
+        end
+    end
+})
+
+TrailsFOVSection:Colorpicker({
+    text = "TRAIL COLOR",
+    color = VisualSettings.TrailsFOV.TrailColor,
+    callback = function(v)
+        VisualSettings.TrailsFOV.TrailColor = v
+        if VisualSettings.TrailsFOV.TrailsEnabled and TrailInstance then
+            TrailInstance.Color = ColorSequence.new({
+                ColorSequenceKeypoint.new(0, v),
+                ColorSequenceKeypoint.new(1, v)
+            })
+        end
+    end
+})
+
+local MovementTabSection = Window:TabSection({
+    text = "MOVEMENT"
+})
+
+local MovementTab = MovementTabSection:Tab({
+    text = "MOVEMENT",
+    icon = "rbxassetid://7999345313"
+})
+
+local MovementSection = MovementTab:Section({
+    text = "MOVEMENT SETTINGS"
+})
+
+MovementSection:Toggle({
+    text = "SPEED ENABLED",
+    state = SpeedSettings.Enabled,
+    callback = function(v)
+        SpeedSettings.Enabled = v
+        local character = LocalPlayer.Character
+        if character and v then
+            pcall(function() applySpeed(character) end)
+        elseif character and not v then
+            local humanoid = character:FindFirstChildOfClass("Humanoid")
+            if humanoid then humanoid.WalkSpeed = 16 end
+        end
+    end
+})
+
+MovementSection:Dropdown({
+    text = "SPEED METHOD",
+    list = {"Motion", "Teleport"},
+    default = SpeedSettings.Method,
+    callback = function(v)
+        SpeedSettings.Method = v
+        local character = LocalPlayer.Character
+        if character and SpeedSettings.Enabled then
+            pcall(function() applySpeed(character) end)
+        end
+    end
+})
+
+MovementSection:Slider({
+    text = "MOTION SPEED",
+    min = 16,
+    max = 50,
+    callback = function(v)
+        SpeedSettings.MotionSpeed = v
+        local character = LocalPlayer.Character
+        if character and SpeedSettings.Enabled and SpeedSettings.Method == "Motion" then
+            pcall(function() applySpeed(character) end)
+        end
+    end
+})
+
+MovementSection:Slider({
+    text = "TELEPORT SPEED",
+    min = 10,
+    max = 50,
+    callback = function(v)
+        SpeedSettings.TpSpeed = v
+        local character = LocalPlayer.Character
+        if character and SpeedSettings.Enabled and SpeedSettings.Method == "Teleport" then
+            pcall(function() applySpeed(character) end)
+        end
+    end
+})
+
+local jumpStunToggle = MovementSection:Toggle({
+    text = "JUMP STUN ENABLED",
+    state = JumpStunSettings.Enabled,
+    callback = function(v)
+        print("Jump Stun toggle called with value:", v)
+        if tick() - lastUIToggle < 1 then return end
+        lastUIToggle = tick()
+        JumpStunSettings.Enabled = v
+        local character = LocalPlayer.Character
+        if character and v then
+            pcall(function() applyJumpStun(character) end)
+        elseif character and not v then
+            stopJumpStun()
+        end
+    end
+}) or {Set = function() warn("jumpStunToggle is nil, using dummy") end}
+
+MovementSection:Slider({
+    text = "JUMP STUN HEIGHT",
+    min = 50,
+    max = 200,
+    callback = function(v)
+        print("Jump Stun Height slider called with value:", v)
+        if tick() - lastUIToggle < 1 then return end
+        lastUIToggle = tick()
+        JumpStunSettings.HoverHeight = v
+    end
+})
+
+local jumpStunKeybind = MovementSection:Keybind({
+    text = "JUMP STUN KEYBIND",
+    default = Enum.KeyCode.T,
+    callback = function()
+        print("Jump Stun GUI keybind triggered")
+        if tick() - lastUIToggle < 1 then return end
+        lastUIToggle = tick()
+        local character = LocalPlayer.Character
+        if character then
+            JumpStunSettings.Enabled = not JumpStunSettings.Enabled
+            if jumpStunToggle and jumpStunToggle.Set then
+                jumpStunToggle:Set(JumpStunSettings.Enabled)
+            else
+                warn("jumpStunToggle is nil, cannot set")
+            end
+            if JumpStunSettings.Enabled then
+                pcall(function() applyJumpStun(character) end)
+            else
+                stopJumpStun()
+            end
+        end
+    end
+}) or {callback = function() warn("jumpStunKeybind is nil, using dummy") end}
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if not gameProcessed and input.KeyCode == Enum.KeyCode.T then
+        print("Jump Stun UserInputService triggered")
+        if tick() - lastUIToggle < 1 then return end
+        lastUIToggle = tick()
+        local character = LocalPlayer.Character
+        if character then
+            JumpStunSettings.Enabled = not JumpStunSettings.Enabled
+            if jumpStunToggle and jumpStunToggle.Set then
+                jumpStunToggle:Set(JumpStunSettings.Enabled)
+            else
+                warn("jumpStunToggle is nil, cannot set")
+            end
+            if JumpStunSettings.Enabled then
+                pcall(function() applyJumpStun(character) end)
+            else
+                stopJumpStun()
+            end
+        end
+    end
+end)
+
+MovementSection:Toggle({
+    text = "FLY ENABLED",
+    state = FlySettings.Enabled,
+    callback = function(v)
+        FlySettings.Enabled = v
+        local character = LocalPlayer.Character
+        if character then
+            pcall(function() toggleFly(character) end)
+        end
+    end
+})
+
+MovementSection:Slider({
+    text = "FLY SPEED",
+    min = 10,
+    max = 100,
+    callback = function(v)
+        FlySettings.Speed = v
+        local character = LocalPlayer.Character
+        if character and FlySettings.Enabled then
+            pcall(function() toggleFly(character) end)
+        end
+    end
+})
+
+MovementSection:Keybind({
+    text = "FLY KEYBIND",
+    default = Enum.KeyCode.F,
+    callback = function()
+        local character = LocalPlayer.Character
+        if character then
+            pcall(function() toggleFly(character) end)
+        end
+    end
+})
+
+MovementSection:Toggle({
+    text = "NO FALL ENABLED",
+    state = NoFallSettings.Enabled,
+    callback = function(v)
+        NoFallSettings.Enabled = v
+        local character = LocalPlayer.Character
+        if character then
+            pcall(function() toggleNoFall(character) end)
+        end
+    end
+})
+
+local MiscTabSection = Window:TabSection({
+    text = "MISC"
+})
+
+local MiscTab = MiscTabSection:Tab({
+    text = "MISC",
+    icon = "rbxassetid://7999345313"
+})
+
+local MiscSection = MiscTab:Section({
+    text = "MISC SETTINGS"
+})
+
+MiscSection:Keybind({
+    text = "TOGGLE GUI",
+    default = Enum.KeyCode.RightShift,
+    callback = function()
+        Library:Toggle()
+    end
+})
+
+-- Initialize Visuals
+InitializeCrosshair()
+SetupCrosshairInput()
+applyChams()
+
+-- Update Loop
+coroutine.resume(coroutine.create(function()
+    RunService.RenderStepped:Connect(function()
+        pcall(function()
+            updateArrows()
+            UpdateCrosshair()
+        end)
+    end)
+end))
+
+-- Heartbeat for Speed and Chams
+if RunService and RunService.Heartbeat then
+    RunService.Heartbeat:Connect(function()
+        local character = LocalPlayer.Character
+        if character and SpeedSettings.Enabled then
+            pcall(function() applySpeed(character) end)
+        end
+        if VisualSettings.Chams.Enabled then
+            task.defer(applyChams)
+        end
+    end)
+end
+
+-- CharacterAdded Handler
+LocalPlayer.CharacterAdded:Connect(function(character)
+    character:WaitForChild("Humanoid", 5)
+    character:WaitForChild("HumanoidRootPart", 5)
+    if SpeedSettings.Enabled then pcall(function() applySpeed(character) end) end
+    if JumpStunSettings.Enabled and tick() - lastCharacterAddedJumpStun >= 5 then
+        lastCharacterAddedJumpStun = tick()
+        pcall(function() applyJumpStun(character) end)
+    end
+    if FlySettings.Enabled then pcall(function() toggleFly(character) end) end
+    if NoFallSettings.Enabled then pcall(function() toggleNoFall(character) end) end
+    if VisualSettings.TrailsFOV.TrailsEnabled then
+        local rootPart = character:WaitForChild("HumanoidRootPart")
+        TrailInstance = createPurpleTrails(rootPart)
+    end
+    if VisualSettings.TrailsFOV.CustomFOVEnabled then
+        setCustomFOV(true, VisualSettings.TrailsFOV.CustomFOV)
+    end
+    if VisualSettings.Chams.Enabled then
+        task.wait(0.1)
+        applyChams()
+    end
+    if BasicAntiAimSettings.Enabled then
+        setupBasicAntiAim()
+    end
+    if JitterAntiAimSettings.Enabled then
+        setupJitterAntiAim()
+        setInitialLookBack()
+    end
+end)
+
+-- Player Handlers
+Players.PlayerAdded:Connect(function(player)
+    player.CharacterAdded:Connect(function(character)
+        local humanoid = character:WaitForChild("Humanoid", 5)
+        if VisualSettings.Chams.Enabled then
+            task.wait(0.1)
+            applyChams()
+        end
+    end)
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+    if arrows[player] then
+        for _, line in pairs(arrows[player].lines) do
+            pcall(function() line:Remove() end)
+        end
+        pcall(function() arrows[player].label:Remove() end)
+        arrows[player] = nil
+    end
+    if originalProperties[player] then
+        for _, part in pairs(originalProperties[player]) do
+            if part.Instance and part.Instance.Parent then
+                pcall(function()
+                    part.Instance.BrickColor = part.OriginalColor
+                    part.Instance.Material = part.OriginalMaterial
+                    part.Instance.Transparency = part.OriginalTransparency or 0
+                    part.Instance.CanCollide = part.OriginalCanCollide
+                    part.Instance.CastShadow = part.OriginalCastShadow
+                end)
+            end
+        end
+        originalProperties[player] = nil
+    end
+    ESPManager:RemoveESP(player)
+end)
+
+-- Cleanup
+LocalPlayer.CharacterRemoving:Connect(function()
+    stopJumpStun()
+    pcall(function()
+        if flyVelocity then flyVelocity:Destroy() end
+        if flyParticle then flyParticle:Destroy() end
+        if flyConnection then flyConnection:Disconnect() end
+        if noFallConnection then noFallConnection:Disconnect() end
+        if TrailInstance then TrailInstance:Destroy() end
+        disableBasicAntiAim()
+        disableJitterAntiAim()
+    end)
+    noFallConnection = nil
+    TrailInstance = nil
+end)
+
+LocalPlayer.AncestryChanged:Connect(function()
+    if not LocalPlayer:IsDescendantOf(game) then
+        for _, connection in pairs(connections) do
+            connection:Disconnect()
+        end
+        originalProperties = {}
+        debugPrint("Cleaned up resources on player exit.")
+    end
+end)
+
+game:BindToClose(function()
+    pcall(function()
+        for _, arrow in pairs(arrows) do
+            for _, line in pairs(arrow.lines) do
+                line:Remove()
+            end
+            arrow.label:Remove()
+        end
+        for _, line in pairs(Crosshair.Lines) do
+            line:Remove()
+        end
+        if Crosshair.Text then
+            Crosshair.Text:Remove()
+        end
+        if Crosshair.Connection then
+            Crosshair.Connection:Disconnect()
+        end
+        for _, instance in pairs(ESPManager.Instances) do
+            instance:Destroy()
+        end
+        if TrailInstance then
+            TrailInstance:Destroy()
+        end
+        if FOVConnection then
+            FOVConnection:Disconnect()
+        end
+    end)
+end)
+
+-- Debug Key Press Logger
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    print("Key pressed:", input.KeyCode, "GameProcessed:", gameProcessed)
+end)
+
+-- Notify
+Library:Notify({
+    text = "EXPLOIT HUB LOADED",
+    duration = 5
+})

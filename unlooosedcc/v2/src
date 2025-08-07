@@ -31,7 +31,7 @@ end
 
 -- Initialize UI
 local Window = Library:Window({
-    text = "EXPLOIT HUB",
+    text = "Unloosed.pel",
     draggable = true
 })
 
@@ -677,7 +677,7 @@ local function InitializeCrosshair()
     end
     Crosshair.Text = Drawing.new("Text")
     Crosshair.Text.Visible = VisualSettings.Crosshair.Enabled
-    Crosshair.Text.Text = "UnLoosed.cc"
+    Crosshair.Text.Text = "UnLoosed.pel"
     Crosshair.Text.Color = Color3.fromRGB(240, 240, 240)
     Crosshair.Text.Size = 16
     Crosshair.Text.Center = true
@@ -1666,20 +1666,11 @@ LocalPlayer.AncestryChanged:Connect(function()
         debugPrint("Cleaned up resources on player exit.")
     end
 end)
-
--- Debug Key Press Logger
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    print("Key pressed:", input.KeyCode, "GameProcessed:", gameProcessed)
-end)
-
--- Notify
-Library:Notify({
-    text = "EXPLOIT HUB LOADED",
-    duration = 5
-})
-
---SILENT AIM PART 
-
+--pasted silent PART
+--pasted silent PART
+--pasted silent PART
+--pasted silent PART
+--pasted silent PART
 -- Wait for game to load
 if not game:IsLoaded() then 
     game.Loaded:Wait()
@@ -1794,7 +1785,7 @@ if not UI then
     warn("Не удалось загрузить библиотеку UI!")
     return
 end
-UI = UI.init("Aimbot Lite", "v1.0.0", "AIMBOT")
+UI = UI.init("Unloosed.pel", "v1.4.88", "Pasta")
 
 -- UI Setup
 local AimOne, AimTwo = UI:AddTab("Aim", "Silent Aim") do
@@ -2218,9 +2209,3 @@ LocalPlayer.CharacterAdded:Connect(function(newChar)
     pulse_circle.Visible = false
     fov_circle.Visible = false
 end)
-
--- Notify script loaded
-UI:Notify("Aimbot Lite Loaded", 5)
-
--- Cleanup on game close
-

@@ -31,7 +31,7 @@ end
 
 -- Initialize UI
 local Window = Library:Window({
-    text = "EXPLOIT HUB",
+    text = "unloosed.pel ft. viteck.pel",
     draggable = true
 })
 
@@ -677,7 +677,7 @@ local function InitializeCrosshair()
     end
     Crosshair.Text = Drawing.new("Text")
     Crosshair.Text.Visible = VisualSettings.Crosshair.Enabled
-    Crosshair.Text.Text = "UnLoosed.cc"
+    Crosshair.Text.Text = "UnLoosed.pel"
     Crosshair.Text.Color = Color3.fromRGB(240, 240, 240)
     Crosshair.Text.Size = 16
     Crosshair.Text.Center = true
@@ -1703,7 +1703,7 @@ end)
 
 -- Notify
 Library:Notify({
-    text = "EXPLOIT HUB LOADED",
+    text = "unloosed.pel loaded",
     duration = 5
 })
 
